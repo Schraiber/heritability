@@ -1,0 +1,152 @@
+function (float)get_G(o<Individual> inds) {
+	g_poly = inds.sumOfMutationsOfType(m2);
+   fixed_effects = sum(sim.substitutions.selectionCoeff);
+      
+   return g_poly + fixed_effects;
+}
+
+function (float)compute_h2(o<Subpopulation>$ p) {
+	V_P = var(p.individuals.tagF);
+	V_G = var(get_G(p.individuals));
+	return V_G/V_P;
+}
+
+function (float)compute_h2b_denom(o<Subpopulation>$ pa,o<Subpopulation>$ pb) {
+	Pa = mean(pa.individuals.tagF);
+	
+	Pb = mean(pb.individuals.tagF);
+	
+	h2b_denom = var(c(Pa,Pb));
+	
+	return h2b_denom;
+}
+
+function (float)compute_h2b(o<Subpopulation>$ pa,o<Subpopulation>$ pb) {
+	Pa = mean(pa.individuals.tagF);
+	Ga = mean(get_G(pa.individuals));
+	
+	Pb = mean(pb.individuals.tagF);
+	Gb = mean(get_G(pb.individuals));
+	
+	h2b = var(c(Ga,Gb))/var(c(Pa,Pb));
+	
+	return h2b;
+}
+
+function (float)compute_h2w(o<Subpopulation>$ pa, o<Subpopulation>$ pb) {
+	Pa = pa.individuals.tagF;
+	Ga = get_G(pa.individuals);
+	
+	tildePa = Pa-mean(Pa);
+	tildeGa = Ga-mean(Ga);
+	
+	Pb = pb.individuals.tagF;
+	Gb = get_G(pb.individuals);
+	
+	tildePb = Pb-mean(Pb);
+	tildeGb = Gb-mean(Gb);
+	
+	h2w = var(c(tildeGa,tildeGb))/var(c(tildePa,tildePb));
+	
+	return h2w;
+}
+
+function (float)compute_Qst(o<Subpopulation>$ pa, o<Subpopulation>$ pb) {
+//	Get from pop 1
+	Ga = get_G(pa.individuals); //Get genetic values
+	EGa = mean(Ga); //Get mean genetic value
+	tildeGa = Ga-EGa; //Get deviations from the mean
+	
+//	Get from pop 2
+	Gb = get_G(pb.individuals); //Get genetic values
+	EGb = mean(Gb); //Get mean genetic value
+	tildeGb = Gb-EGb; //Get deviations from the mean
+	
+//	Compute Qst
+	Qst = (1/2)*var(c(EGa,EGb))/((1/2)*var(c(EGa,EGb))+2*var(c(tildeGa,tildeGb))); //NOTE THE FACTOR OF 1/2 to remove bessel correction for 2 groups (Weaver 2016)
+	
+	return Qst;
+}
+
+initialize() {
+	setSeed(seed);
+	initializeMutationRate(1e-7);
+   initializeMutationType("m1", 0.5, "f", 0.0);       // neutral
+   initializeMutationType("m2", 0.5, "n", 0.0, sqrt(5*0.001));  // QTL
+  	initializeGenomicElementType("g1", c(m1, m2), c(1, 1));
+   initializeGenomicElement(g1, 0, 2*(1e6 - 1));
+ 	initializeRecombinationRate(1e-5);
+}
+
+mutationEffect(m2) {
+	return 1.0;   // QTLs are neutral; fitness effects are handled below
+}
+
+
+1 late() {
+         sim.addSubpop("p1", 1000);
+//			log = community.createLogFile("~/Desktop/sim_output_subs.txt",sep="\t",logInterval=1);
+//			log.addCycle();
+//			log.addCustomColumn("Zbar1", "mean(p1.individuals.tagF);");
+//         log.addCustomColumn("Gbar1", "mean(get_G(p1.individuals));");
+//         log.addCustomColumn("VP1","var(p1.individuals.tagF);");
+//         log.addCustomColumn("VG1","var(get_G(p1.individuals));");
+//         log.addCustomColumn("h21","compute_h2(p1);");
+//         log.addCustomColumn("num_fixed","sum(sim.substitutions.mutationType==m2);");
+     }
+     
+1:20000 late() {
+         // evaluate QTLs to get phenotypes and fitness
+         inds = sim.subpopulations.individuals;
+         g = get_G(inds);
+         e = rnorm(size(inds), 0.0,sqrt(0.4)); 
+         phenotypes = g + e;
+         inds.fitnessScaling = dnorm(phenotypes, 0.0, sqrt(100));
+         inds.tagF = phenotypes;
+     }
+     
+     
+20000 early() {
+	sim.addSubpopSplit("p2", 1000, p1);
+}
+
+20000 late() {
+         log = community.createLogFile(logfile,sep="\t",logInterval=1);
+         log.addCycle();
+         log.addCustomColumn("Zbar1", "mean(p1.individuals.tagF);");
+         log.addCustomColumn("Gbar1", "mean(get_G(p1.individuals));");
+         log.addCustomColumn("VP1","var(p1.individuals.tagF);");
+         log.addCustomColumn("VG1","var(get_G(p1.individuals));");
+         log.addCustomColumn("h21","compute_h2(p1);");
+         log.addCustomColumn("Zbar2", "mean(p2.individuals.tagF);");
+         log.addCustomColumn("Gbar2", "mean(get_G(p2.individuals));");
+         log.addCustomColumn("VP2","var(p2.individuals.tagF);");
+         log.addCustomColumn("VG2","var(get_G(p2.individuals));");
+         log.addCustomColumn("h22","compute_h2(p2);");
+         log.addCustomColumn("h2b","compute_h2b(p1,p2);");
+         log.addCustomColumn("h2b_denom", "compute_h2b_denom(p1,p2);");
+         log.addCustomColumn("h2w","compute_h2w(p1,p2);");
+         log.addCustomColumn("Qst","compute_Qst(p1,p2);");
+         log.addCustomColumn("Fst","calcFST(p1.genomes, p2.genomes,sim.mutationsOfType(m1));");
+}
+
+20000: late() {
+         // evaluate QTLs to get phenotypes and fitness
+         inds = p1.individuals;
+         g = get_G(inds);
+         e = rnorm(size(inds), 0.0,sqrt(5*0.4)); 
+         phenotypes = g + e;
+         inds.fitnessScaling  = dnorm(phenotypes, 0.0, sqrt(100));
+         inds.tagF = phenotypes;
+         
+         inds = p2.individuals;
+         g = get_G(inds);
+         e = rnorm(size(inds), dE,sqrt(5*0.4)); 
+         phenotypes = g + e;
+         inds.fitnessScaling = dnorm(phenotypes, 1, sqrt(100));
+         inds.tagF = phenotypes;
+}
+     
+20500 late() {
+	sim.simulationFinished();
+}
